@@ -18,8 +18,10 @@
 from __future__ import print_function, unicode_literals
 
 import collections
+import datetime
 import fnmatch
 import json
+import re
 import threading
 import time
 import os
@@ -37,6 +39,17 @@ with open(os.path.expanduser('~/.ircconf.json'), 'r') as f:
     ircconf = json.load(f)
 with open(os.path.expanduser('~/channels.json'), 'r') as f:
     channels = json.load(f, object_pairs_hook=collections.OrderedDict)
+
+SITE = pywikibot.Site()
+
+# Regexes source from Dispenser
+stalkwords_R = re.compile(
+    r'(Wikipedia|WP)[-. _\-]*(0|Zero)|T129845|Z591|Z567|Dispenser|HaeB|'
+    r'Keegan|Koerner|Vito|Zhuyifei', re.I)
+pirate_names_R = re.compile(
+    r'(([Nn]+[Ee]+[Ww]+[Ss]+|[Nn]+[Ww]+[Ee]+[Ss]+|[Pp]ortal|[Mm]u[sz]ik|'
+    r'[Mm]adezyma|Walter|Mr[.]?_Gamer|MRGAMER|Germano|[Aa]rlindo|[Aa]mbrosio|'
+    r'[Hh]indio|[Ee]dman|Edgar|[Yy]ounes)[_.\-]?(?![^ ]*/))+')
 
 
 class MediaDubietyIRC(
@@ -116,12 +129,80 @@ class EventHandler(threading.Thread):
         self.event = event
         self.irc = irc
 
+    @staticmethod
+    def check_wp0_usercat(self, username):
+        testcat = 'Category:Users suspected of abusing Wikipedia Zero'
+        commonsuser = pywikibot.User(SITE, username)
+        for category in commonsuser.categories():
+            if category.title() == testcat:
+                return True
+            for supercategory in category.categories():
+                if supercategory.title() == testcat:
+                    return True
+
+        for userlist in [
+            'User:Teles/Angola Facebook Case',
+            'User:NahidSultan/Bangladesh Facebook Case/Accounts'
+        ]:
+            for linkeduser in pywikibot.page(SITE, userlist).linkedPages():
+                if linkeduser.title() == commonsuser.title():
+                    return True
+
+        return False
+
+    @staticmethod
+    def sizeof_fmt(num, suffix='B'):
+        # Source: http://stackoverflow.com/a/1094933
+        for unit in ['', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi', 'Ei', 'Zi']:
+            if abs(num) < 1024.0:
+                return "%3.1f%s%s" % (num, unit, suffix)
+            num /= 1024.0
+        return "%.1f%s%s" % (num, 'Yi', suffix)
+
     def run(self):
-        privmsg_channels = []
-        for glob, channel in channels.items():
-            if fnmatch.fnmatch(self.event['server_name'], glob):
-                privmsg_channels.append(channel)
-        self.irc.msg(privmsg_channels, self.event['meta']['uri'])
+        site = SITE.fromDBName(self.event['wiki'])
+        user = pywikibot.User(site, self.event['user'])
+
+        line = None
+
+        if self.event['log_type'] == 'upload':
+            filepage = pywikibot.FilePage(site, self.event['title'])
+            revision = filepage.latest_file_info
+            if revision.mime.startswith('image/'):
+                return
+
+            user.getprops(True)
+            if (user.editCount() > 20 and
+                    user.registration() < datetime.datetime(2017, 1, 1)):
+                if not self.check_wp0_usercat(self.event['user']):
+                    return
+
+            hasdelete = bool(list(
+                site.logevents(logtype='delete', page=filepage, total=1)))
+            groups = set(user.groups()) - set(['*', 'user', 'autoconfirmed'])
+
+            line = '%s (%d %s%s) %s %s (%s)' % (
+                ('http://tinyurl.com/CentralAuth/' + user.title(
+                    underscore=True, asUrl=True, withNamespace=False)),
+                user.editCount(),
+                'edit' if user.editCount() == 1 else 'edits',
+                (', \x0301,09%s\x0F' % ', '.join(groups)) if groups else '',
+                ('re-uploaded' if hasdelete else 'uploaded'),
+                self.event['meta']['uri'],
+                ', '.join([x for x in (
+                    self.sizeof_fmt(revision.size),
+                    ('%d min' % (revision.duration / 60.0)
+                        if hasattr(revision, 'duration') else ''),
+                ) if x])
+            )
+            line = pirate_names_R.sub('\x0304\\g<0>\x0F', line)
+
+        if line:
+            privmsg_channels = []
+            for glob, channel in channels.items():
+                if fnmatch.fnmatch(self.event['server_name'], glob):
+                    privmsg_channels.append(channel)
+            self.irc.msg(privmsg_channels, line)
 
 
 def main():
