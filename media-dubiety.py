@@ -144,7 +144,7 @@ class EventHandler(threading.Thread):
             'User:Teles/Angola Facebook Case',
             'User:NahidSultan/Bangladesh Facebook Case/Accounts'
         ]:
-            for linkeduser in pywikibot.page(SITE, userlist).linkedPages():
+            for linkeduser in pywikibot.Page(SITE, userlist).linkedPages():
                 if linkeduser.title() == commonsuser.title():
                     return True
 
