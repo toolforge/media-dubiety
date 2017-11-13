@@ -168,14 +168,40 @@ class EventHandler(threading.Thread):
         if self.event['log_type'] == 'upload':
             filepage = pywikibot.FilePage(site, self.event['title'])
             revision = filepage.latest_file_info
-            if revision.mime.startswith('image/'):
-                return
 
-            user.getprops(True)
-            if (user.editCount() > 20 or
-                    user.registration() < datetime.datetime(2017, 1, 1)):
-                if not self.check_wp0_usercat(self.event['user']):
-                    return
+            def file_is_evil():
+                if EventHandler.check_wp0_usercat(user.username):
+                    return True
+
+                if revision.mime.startswith('image/'):
+                    # try:
+                    #     dim = revision.width * revision.height
+                    # except (TypeError, AttributeError):
+                    #     return True
+                    #
+                    # if revision.mime == 'image/jpeg':
+                    #     if revision.size < 3 * dim + 10 << 20:
+                    #         return False
+                    # if revision.mime == 'image/png':
+                    #     if revision.size < TODO:
+                    #         return False
+                    # else:
+                        return False
+                elif revision.mime == 'application/pdf':
+                    numpages = int({
+                        val['name']: val['value']
+                        for val in revision.metadata
+                    }.get('Pages', '0'))
+                    if revision.size < (min(8, numpages) << 20):
+                        return False
+
+                user.getprops(True)
+                if (user.editCount() > 20 or
+                        user.registration() < datetime.datetime(2017, 1, 1)):
+                    return False
+
+            if not file_is_evil():
+                return
 
             hasdelete = bool(list(
                 site.logevents(logtype='delete', page=filepage, total=1)))
@@ -196,6 +222,8 @@ class EventHandler(threading.Thread):
                 ) if x])
             )
             line = pirate_names_R.sub('\x0304\\g<0>\x0F', line)
+        elif self.event['log_type'] == 'block':
+            pass
 
         if line:
             privmsg_channels = []
