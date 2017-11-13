@@ -52,6 +52,35 @@ pirate_names_R = re.compile(
     r'[Hh]indio|[Ee]dman|Edgar|[Yy]ounes)[_.\-]?(?![^ ]*/))+')
 
 
+class BoundedQueueList(object):
+    def __init__(self, max_length):
+        self.max_length = max_length
+        self.list = []
+        self.lock = threading.RLock()
+
+    def append(self, item):
+        with self.lock:
+            if len(self.list) == self.max_length:
+                self.popfirst()
+
+            self.list.append(item)
+
+    def popfirst(self):
+        with self.lock:
+            return self.list.pop(0)
+
+    def remove(self, value):
+        with self.lock:
+            self.list.remove(value)
+
+    def __contains__(self, value):
+        with self.lock:
+            return value in self.list
+
+
+badUsers = BoundedQueueList(32)
+
+
 class MediaDubietyIRC(
     ib3.auth.SASL,
     ib3.connection.SSL,
@@ -205,6 +234,8 @@ class EventHandler(threading.Thread):
             if not file_is_evil():
                 return
 
+            badUsers.append(user.username)
+
             hasdelete = bool(list(
                 site.logevents(logtype='delete', page=filepage, total=1)))
             groups = set(user.groups()) - set(['*', 'user', 'autoconfirmed'])
@@ -225,7 +256,28 @@ class EventHandler(threading.Thread):
             )
             line = pirate_names_R.sub('\x0304\\g<0>\x0F', line)
         elif self.event['log_type'] == 'block':
-            pass
+            blocked = pywikibot.User(site, self.event['title'])
+            if blocked.username not in badUsers:
+                return
+
+            # Source: Dispenser
+            def no_ping_name(username):
+                # TODO Use channel member list instead of randomly
+                # inserting characters
+                username, n = re.subn(
+                    r'(?<=[a-z])(?=[A-Z])|[ _-]+', r'.', username)
+                if n == 0:
+                    l = len(username)
+                    username = username[:l//2] + u'.' + username[l//2:]
+                return username
+
+            line = '%s blocks User:%s on %s for: \x02%s\x0F' % (
+                no_ping_name(user.username),
+                blocked.username.replace(' ', '_'),
+                self.event['wiki'],
+                re.sub(br'\[\[([^[\]{|}]+\|)?(.*?)\]\]', b'\x1f\\2\x1f',
+                       self.event['comment']),
+            )
 
         if line:
             privmsg_channels = []
