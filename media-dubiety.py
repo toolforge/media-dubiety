@@ -130,7 +130,7 @@ class EventHandler(threading.Thread):
         self.irc = irc
 
     @staticmethod
-    def check_wp0_usercat(self, username):
+    def check_wp0_usercat(username):
         testcat = 'Category:Users suspected of abusing Wikipedia Zero'
         commonsuser = pywikibot.User(SITE, username)
         for category in commonsuser.categories():
@@ -172,7 +172,7 @@ class EventHandler(threading.Thread):
                 return
 
             user.getprops(True)
-            if (user.editCount() > 20 and
+            if (user.editCount() > 20 or
                     user.registration() < datetime.datetime(2017, 1, 1)):
                 if not self.check_wp0_usercat(self.event['user']):
                     return
