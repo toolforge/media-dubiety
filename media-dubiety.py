@@ -200,6 +200,8 @@ class EventHandler(threading.Thread):
                         user.registration() < datetime.datetime(2017, 1, 1)):
                     return False
 
+                return True
+
             if not file_is_evil():
                 return
 
