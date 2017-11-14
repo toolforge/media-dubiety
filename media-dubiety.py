@@ -35,6 +35,11 @@ import ib3.nick
 import pywikibot
 from pywikibot.comms.eventstreams import EventStreams
 
+try:
+    __import__('customize')
+except ImportError:
+    pass
+
 with open(os.path.expanduser('~/.ircconf.json'), 'r') as f:
     ircconf = json.load(f)
 with open(os.path.expanduser('~/channels.json'), 'r') as f:
@@ -143,7 +148,7 @@ class MediaDubietySSE(threading.Thread):
                 raise KeyboardInterrupt
 
             if (event['type'] == 'log' and
-                    event['log_type'] in ['upload', 'block']):
+                    event['log_type'] in ['upload', 'block', 'globalauth']):
                 EventHandler(event, self.irc).start()
 
     def interrupt(self):
@@ -255,8 +260,9 @@ class EventHandler(threading.Thread):
                 ) if x])
             )
             line = pirate_names_R.sub('\x0304\\g<0>\x0F', line)
-        elif self.event['log_type'] == 'block':
-            blocked = pywikibot.User(site, self.event['title'])
+        elif self.event['log_action'] in ['block', 'lock']:
+            title = re.sub(r'@global$', '', self.event['title'])
+            blocked = pywikibot.User(site, title)
             if blocked.username not in badUsers:
                 return
 
@@ -271,8 +277,9 @@ class EventHandler(threading.Thread):
                     username = username[:l//2] + u'.' + username[l//2:]
                 return username
 
-            line = '%s blocks User:%s on %s for: \x02%s\x0F' % (
+            line = '%s %ss User:%s on %s for: \x02%s\x0F' % (
                 no_ping_name(user.username),
+                self.event['log_action'],
                 blocked.username.replace(' ', '_'),
                 self.event['wiki'],
                 re.sub(br'\[\[([^[\]{|}]+\|)?(.*?)\]\]', b'\x1f\\2\x1f',
