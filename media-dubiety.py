@@ -122,7 +122,7 @@ class MediaDubietyIRC(
 
     def check_interrupt(self):
         if self.interrupt_event.isSet():
-            self.connection.disconnect()
+            self.connection.disconnect('406 Not Acceptable')
             raise KeyboardInterrupt
 
     def interrupt(self):
@@ -260,8 +260,21 @@ class EventHandler(threading.Thread):
                 ) if x])
             )
             line = pirate_names_R.sub('\x0304\\g<0>\x0F', line)
-        elif self.event['log_action'] in ['block', 'lock']:
-            title = re.sub(r'@global$', '', self.event['title'])
+        elif self.event['log_type'] in ['block', 'globalauth']:
+            title = self.event['title']
+            typ = None
+            if self.event['log_type'] == 'globalauth':
+                if self.event['log_action'] != 'setstatus':
+                    return
+                if self.event['log_params'] != ['locked', '(none)']:
+                    return
+                title = re.sub(r'@global$', '', )
+                typ = 'lock'
+            elif self.event['log_type'] == 'block':
+                if self.event['log_action'] != 'block':
+                    return
+                typ = 'block'
+
             blocked = pywikibot.User(site, title)
             if blocked.username not in badUsers:
                 return
@@ -279,7 +292,7 @@ class EventHandler(threading.Thread):
 
             line = '%s %ss User:%s on %s for: \x02%s\x0F' % (
                 no_ping_name(user.username),
-                self.event['log_action'],
+                typ,
                 blocked.username.replace(' ', '_'),
                 self.event['wiki'],
                 re.sub(br'\[\[([^[\]{|}]+\|)?(.*?)\]\]', b'\x1f\\2\x1f',
@@ -307,7 +320,7 @@ def main():
         irc.interrupt()
         for thread in threading.enumerate():
             if thread.daemon:
-                print('Abandoning daemon thread %s' % thread.name)
+                pywikibot.output('Abandoning daemon thread %s' % thread.name)
 
 
 if __name__ == '__main__':
