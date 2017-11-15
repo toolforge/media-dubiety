@@ -268,7 +268,7 @@ class EventHandler(threading.Thread):
                     return
                 if self.event['log_params'] != ['locked', '(none)']:
                     return
-                title = re.sub(r'@global$', '', )
+                title = re.sub(r'@global$', '', title)
                 typ = 'lock'
             elif self.event['log_type'] == 'block':
                 if self.event['log_action'] != 'block':
