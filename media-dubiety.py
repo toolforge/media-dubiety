@@ -21,6 +21,7 @@ import collections
 import datetime
 import fnmatch
 import json
+import random
 import re
 import threading
 import time
@@ -83,7 +84,68 @@ class BoundedQueueList(object):
             return value in self.list
 
 
-badUsers = BoundedQueueList(32)
+foundBadUsers = BoundedQueueList(32)
+
+
+class RecheckingList():
+    def __init__(self, gen, recheck=0.1):
+        self.gen = gen
+        self.list = self.gen()
+        self.recheck = recheck
+        self.lock = threading.RLock()
+
+    def __contains__(self, value):
+        locked = self.lock.acquire(False)
+        if random.random < self.recheck and locked:
+            try:
+                self.list = self.gen()
+                return value in self.list
+            finally:
+                self.lock.release()
+        elif locked:
+            try:
+                return value in self.list
+            finally:
+                self.lock.release()
+        else:
+            with self.lock:
+                return value in self.list
+
+
+def get_wp0_usercat():
+    users = set()
+    usercat = pywikibot.Category(
+        SITE, 'Category:Users suspected of abusing Wikipedia Zero')
+    usercats = [usercat]
+    usercats.extend(usercat.subcategories())
+    for category in usercats:
+        for user in category.articles(namespaces=2):
+            user = pywikibot.User(user)
+            users.add(user.username)
+
+    for userlist in [
+        'User:Teles/Angola Facebook Case',
+        'User:NahidSultan/Bangladesh Facebook Case/Accounts'
+    ]:
+        for user in pywikibot.Page(SITE, userlist).linkedPages(
+                namespaces=2):
+            user = pywikibot.User(user)
+            users.add(user.username)
+
+    return users
+
+
+categorizedBadUsers = RecheckingList(get_wp0_usercat)
+
+
+def sizeof_fmt(num, suffix='B'):
+    # Source: http://stackoverflow.com/a/1094933
+    for unit in ['', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi', 'Ei', 'Zi']:
+        if abs(num) < 1024.0:
+            return "%3.1f%s%s" % (num, unit, suffix)
+        num /= 1024.0
+    return "%.1f%s%s" % (num, 'Yi', suffix)
+
 
 
 class MediaDubietyIRC(
@@ -163,36 +225,6 @@ class EventHandler(threading.Thread):
         self.event = event
         self.irc = irc
 
-    @staticmethod
-    def check_wp0_usercat(username):
-        testcat = 'Category:Users suspected of abusing Wikipedia Zero'
-        commonsuser = pywikibot.User(SITE, username)
-        for category in commonsuser.categories():
-            if category.title() == testcat:
-                return True
-            for supercategory in category.categories():
-                if supercategory.title() == testcat:
-                    return True
-
-        for userlist in [
-            'User:Teles/Angola Facebook Case',
-            'User:NahidSultan/Bangladesh Facebook Case/Accounts'
-        ]:
-            for linkeduser in pywikibot.Page(SITE, userlist).linkedPages():
-                if linkeduser.title() == commonsuser.title():
-                    return True
-
-        return False
-
-    @staticmethod
-    def sizeof_fmt(num, suffix='B'):
-        # Source: http://stackoverflow.com/a/1094933
-        for unit in ['', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi', 'Ei', 'Zi']:
-            if abs(num) < 1024.0:
-                return "%3.1f%s%s" % (num, unit, suffix)
-            num /= 1024.0
-        return "%.1f%s%s" % (num, 'Yi', suffix)
-
     def run(self):
         site = SITE.fromDBName(self.event['wiki'])
         user = pywikibot.User(site, self.event['user'])
@@ -204,7 +236,7 @@ class EventHandler(threading.Thread):
             revision = filepage.latest_file_info
 
             def file_is_evil():
-                if EventHandler.check_wp0_usercat(user.username):
+                if user.username in categorizedBadUsers:
                     return True
 
                 if revision.mime.startswith('image/'):
@@ -239,7 +271,7 @@ class EventHandler(threading.Thread):
             if not file_is_evil():
                 return
 
-            badUsers.append(user.username)
+            foundBadUsers.append(user.username)
 
             hasdelete = bool(list(
                 site.logevents(logtype='delete', page=filepage, total=1)))
@@ -254,7 +286,7 @@ class EventHandler(threading.Thread):
                 ('re-uploaded' if hasdelete else 'uploaded'),
                 self.event['meta']['uri'],
                 ', '.join([x for x in (
-                    self.sizeof_fmt(revision.size),
+                    sizeof_fmt(revision.size),
                     ('%d min' % (revision.duration / 60.0)
                         if hasattr(revision, 'duration') else ''),
                 ) if x])
@@ -276,7 +308,7 @@ class EventHandler(threading.Thread):
                 typ = 'block'
 
             blocked = pywikibot.User(site, title)
-            if blocked.username not in badUsers:
+            if blocked.username not in foundBadUsers:
                 return
 
             # Source: Dispenser
