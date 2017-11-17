@@ -147,7 +147,6 @@ def sizeof_fmt(num, suffix='B'):
     return "%.1f%s%s" % (num, 'Yi', suffix)
 
 
-
 class MediaDubietyIRC(
     ib3.auth.SASL,
     ib3.connection.SSL,
@@ -194,7 +193,8 @@ class MediaDubietyIRC(
         if not self.has_primary_nick():
             return
 
-        self.connection.privmsg_many(channels, msg)
+        for i in range(0, len(msg), 500):
+            self.connection.privmsg_many(channels, msg[i:i+500])
 
 
 class MediaDubietySSE(threading.Thread):
