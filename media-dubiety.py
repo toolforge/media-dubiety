@@ -278,7 +278,7 @@ class EventHandler(threading.Thread):
             groups = set(user.groups()) - set(['*', 'user', 'autoconfirmed'])
 
             line = '%s (%d %s%s) %s %s (%s)' % (
-                ('http://tinyurl.com/CentralAuth/' + user.title(
+                ('https://tinyurl.com/CentralAuth/' + user.title(
                     underscore=True, asUrl=True, withNamespace=False)),
                 user.editCount(),
                 'edit' if user.editCount() == 1 else 'edits',
