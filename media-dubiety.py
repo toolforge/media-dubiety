@@ -21,20 +21,19 @@ import collections
 import datetime
 import fnmatch
 import json
-import random
 import re
 import threading
 import time
 import os
 
-import ib3
-import ib3.auth
-import ib3.connection
-import ib3.mixins
-import ib3.nick
-
 import pywikibot
-from pywikibot.comms.eventstreams import EventStreams
+
+from mdcollections import BoundedQueueList, RecheckingList
+from threads import IRCClient, SSEClient, ThreadPool
+from utils import sizeof_fmt
+
+if os.name == 'posix':
+    __import__('pthread_setname')
 
 try:
     __import__('customize')
@@ -58,58 +57,7 @@ pirate_names_R = re.compile(
     r'[Hh]indio|[Ee]dman|Edgar|[Yy]ounes)[_.\-]?(?![^ ]*/))+')
 
 
-class BoundedQueueList(object):
-    def __init__(self, max_length):
-        self.max_length = max_length
-        self.list = []
-        self.lock = threading.RLock()
-
-    def append(self, item):
-        with self.lock:
-            if len(self.list) == self.max_length:
-                self.popfirst()
-
-            self.list.append(item)
-
-    def popfirst(self):
-        with self.lock:
-            return self.list.pop(0)
-
-    def remove(self, value):
-        with self.lock:
-            self.list.remove(value)
-
-    def __contains__(self, value):
-        with self.lock:
-            return value in self.list
-
-
 foundBadUsers = BoundedQueueList(32)
-
-
-class RecheckingList():
-    def __init__(self, gen, recheck=0.1):
-        self.gen = gen
-        self.list = self.gen()
-        self.recheck = recheck
-        self.lock = threading.RLock()
-
-    def __contains__(self, value):
-        locked = self.lock.acquire(False)
-        if random.random < self.recheck and locked:
-            try:
-                self.list = self.gen()
-                return value in self.list
-            finally:
-                self.lock.release()
-        elif locked:
-            try:
-                return value in self.list
-            finally:
-                self.lock.release()
-        else:
-            with self.lock:
-                return value in self.list
 
 
 def get_wp0_usercat():
@@ -136,85 +84,6 @@ def get_wp0_usercat():
 
 
 categorizedBadUsers = RecheckingList(get_wp0_usercat)
-
-
-def sizeof_fmt(num, suffix='B'):
-    # Source: http://stackoverflow.com/a/1094933
-    for unit in ['', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi', 'Ei', 'Zi']:
-        if abs(num) < 1024.0:
-            return "%3.1f%s%s" % (num, unit, suffix)
-        num /= 1024.0
-    return "%.1f%s%s" % (num, 'Yi', suffix)
-
-
-class MediaDubietyIRC(
-    ib3.auth.SASL,
-    ib3.connection.SSL,
-    ib3.mixins.DisconnectOnError,
-    ib3.mixins.PingServer,
-    # ib3.mixins.RejoinOnBan,
-    # ib3.mixins.RejoinOnKick,
-    ib3.nick.Regain,
-    ib3.Bot,
-    threading.Thread,
-):
-    def __init__(self, ircconf):
-        super(MediaDubietyIRC, self).__init__(
-            server_list=[
-                (ircconf['server'], ircconf['port'])
-            ],
-            nickname=ircconf['nick'],
-            realname=ircconf['realname'],
-            ident_password=ircconf['password'],
-            channels=channels.values(),
-        )
-        threading.Thread.__init__(self, name='IRC')
-
-        self.interrupt_event = threading.Event()
-        self.reactor.scheduler.execute_every(
-            period=1, func=self.check_interrupt)
-
-    def run(self):  # Override threading.Thread
-        super(MediaDubietyIRC, self).start()
-        # ib3.Bot.start(self)
-
-    def start(self):  # Override ib3.Bot
-        threading.Thread.start(self)
-
-    def check_interrupt(self):
-        if self.interrupt_event.isSet():
-            self.connection.disconnect('406 Not Acceptable')
-            raise KeyboardInterrupt
-
-    def interrupt(self):
-        self.interrupt_event.set()
-
-    def msg(self, channels, msg):
-        if not self.has_primary_nick():
-            return
-
-        for i in range(0, len(msg), 500):
-            self.connection.privmsg_many(channels, msg[i:i+500])
-
-
-class MediaDubietySSE(threading.Thread):
-    def __init__(self, irc):
-        super(MediaDubietySSE, self).__init__(name='SSE')
-        self.irc = irc
-        self.interrupt_event = threading.Event()
-
-    def run(self):
-        stream = EventStreams(stream='recentchange')
-        for event in stream:
-            if self.interrupt_event.isSet():
-                raise KeyboardInterrupt
-
-            if (event['type'] == 'log' and
-                    event['log_type'] in ['upload', 'block', 'globalauth']):
-                EventHandler(event, self.irc).start()
-
-    def interrupt(self):
-        self.interrupt_event.set()
 
 
 class EventHandler(threading.Thread):
@@ -339,17 +208,33 @@ class EventHandler(threading.Thread):
             self.irc.msg(privmsg_channels, line)
 
 
+def mk_handler(irc, pool=None):
+    def handler(event):
+        if (event['type'] == 'log' and
+                event['log_type'] in ['upload', 'block', 'globalauth']):
+            if pool:
+                pool.process(lambda: EventHandler(event, irc).run())
+            else:
+                EventHandler(event, irc).start()
+
+    return handler
+
+
 def main():
-    irc = MediaDubietyIRC(ircconf)
-    sse = MediaDubietySSE(irc)
+    pool = ThreadPool(4)
+    irc = IRCClient(ircconf, channels)
+    sse = SSEClient(mk_handler(irc, pool))
+    pool.start()
     irc.start()
     sse.start()
     try:
-        while irc.isAlive() and sse.isAlive():
+        while any(t.isAlive() for t in (pool, irc, sse)):
             time.sleep(1)
     finally:
-        sse.interrupt()
-        irc.interrupt()
+        pool.stop()
+        sse.stop()
+        irc.stop()
+
         for thread in threading.enumerate():
             if thread.daemon:
                 pywikibot.output('Abandoning daemon thread %s' % thread.name)
