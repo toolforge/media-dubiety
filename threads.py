@@ -2,6 +2,7 @@ from __future__ import unicode_literals
 
 import Queue
 import threading
+import traceback
 
 import ib3
 import ib3.auth
@@ -94,8 +95,12 @@ class ThreadPoolThread(threading.Thread):
             except Queue.Empty:
                 pass
             else:
-                f()
-                self.queue.task_done()
+                try:
+                    f()
+                except Exception:
+                    traceback.print_exc()
+                finally:
+                    self.queue.task_done()
 
             if self.interrupt_event.isSet():
                 raise KeyboardInterrupt
