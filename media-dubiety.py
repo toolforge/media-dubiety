@@ -221,7 +221,7 @@ def mk_handler(irc, pool=None):
 
 
 def main():
-    pool = ThreadPool(4)
+    pool = ThreadPool(8)
     irc = IRCClient(ircconf, channels)
     sse = SSEClient(mk_handler(irc, pool))
     pool.start()
