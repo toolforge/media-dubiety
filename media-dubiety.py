@@ -228,7 +228,7 @@ def main():
     irc.start()
     sse.start()
     try:
-        while any(t.isAlive() for t in (pool, irc, sse)):
+        while all(t.isAlive() for t in (pool, irc, sse)):
             time.sleep(1)
     finally:
         pool.stop()
