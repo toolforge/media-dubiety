@@ -1,6 +1,7 @@
 from __future__ import unicode_literals, print_function
 
 import Queue
+import thread
 import threading
 import traceback
 
@@ -43,7 +44,7 @@ class IRCClient(
         )
         threading.Thread.__init__(self, name='IRC')
 
-        self.interrupt_event = threading.Event()
+        self.stop_event = threading.Event()
         self.reactor.scheduler.execute_every(
             period=1, func=self.check_interrupt)
 
@@ -55,12 +56,12 @@ class IRCClient(
         threading.Thread.start(self)
 
     def check_interrupt(self):
-        if self.interrupt_event.isSet():
+        if self.stop_event.isSet():
             self.connection.disconnect('406 Not Acceptable')
-            raise KeyboardInterrupt
+            thread.exit()
 
     def stop(self):
-        self.interrupt_event.set()
+        self.stop_event.set()
 
     def msg(self, channels, msg):
         if not self.has_primary_nick():
@@ -76,25 +77,25 @@ class IRCClient(
 class SSEClient(threading.Thread):
     def __init__(self, handler):
         super(SSEClient, self).__init__(name='SSE')
-        self.interrupt_event = threading.Event()
+        self.stop_event = threading.Event()
         self.handler = handler
 
     def run(self):
         stream = EventStreams(stream='recentchange')
         for event in stream:
-            if self.interrupt_event.isSet():
-                raise KeyboardInterrupt
+            if self.stop_event.isSet():
+                thread.exit()
 
             self.handler(event)
 
     def stop(self):
-        self.interrupt_event.set()
+        self.stop_event.set()
 
 
 class ThreadPoolThread(threading.Thread):
     def __init__(self, name, queue):
         super(ThreadPoolThread, self).__init__(name=name)
-        self.interrupt_event = threading.Event()
+        self.stop_event = threading.Event()
         self.queue = queue
 
     def run(self):
@@ -111,11 +112,11 @@ class ThreadPoolThread(threading.Thread):
                 finally:
                     self.queue.task_done()
 
-            if self.interrupt_event.isSet():
-                raise KeyboardInterrupt
+            if self.stop_event.isSet():
+                thread.exit()
 
     def stop(self):
-        self.interrupt_event.set()
+        self.stop_event.set()
 
 
 class ThreadPool(object):
@@ -133,27 +134,27 @@ class ThreadPool(object):
         with self.lock:
             for i in range(n):
                 self.size += 1
-                thread = ThreadPoolThread(
+                thr = ThreadPoolThread(
                     '%s-%d' % (self.name, self.size),
                     self.queue
                 )
-                self.threads.append(thread)
+                self.threads.append(thr)
                 if self.running:
-                    thread.start()
+                    thr.start()
 
     def decr(self, n):
         with self.lock:
             for i in range(n):
                 self.size -= 1
-                thread = self.threads.pop()
+                thr = self.threads.pop()
                 if self.running:
-                    thread.stop()
+                    thr.stop()
 
     def start(self):
         with self.lock:
             self.running = True
-            for thread in self.threads:
-                thread.start()
+            for thr in self.threads:
+                thr.start()
 
     def join(self):
         return self.queue.join()
