@@ -14,6 +14,12 @@ import pywikibot
 from pywikibot.comms.eventstreams import EventStreams
 
 
+try:
+    basestring
+except NameError:
+    basestring = str
+
+
 class IRCClient(
     ib3.auth.SASL,
     ib3.connection.SSL,
@@ -59,6 +65,9 @@ class IRCClient(
     def msg(self, channels, msg):
         if not self.has_primary_nick():
             return
+
+        if isinstance(channels, basestring):
+            channels = [channels]
 
         for i in range(0, len(msg), 500):
             self.connection.privmsg_many(channels, msg[i:i+500])
