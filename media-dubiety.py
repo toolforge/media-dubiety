@@ -21,10 +21,12 @@ import collections
 import datetime
 import fnmatch
 import json
+import os
+import sys
 import re
 import threading
 import time
-import os
+import traceback
 
 import pywikibot
 
@@ -224,20 +226,24 @@ def main():
     pool = ThreadPool(8)
     irc = IRCClient(ircconf, channels)
     sse = SSEClient(mk_handler(irc, pool))
-    pool.start()
-    irc.start()
-    sse.start()
+    threads = pool, irc, sse
+
+    map(lambda thread: thread.start(), threads)
+
     try:
-        while all(t.isAlive() for t in (pool, irc, sse)):
+        while all(thread.isAlive() for thread in threads):
             time.sleep(1)
+    except BaseException:
+        traceback.print_exc()
+        sys.exit(1)
     finally:
-        pool.stop()
-        sse.stop()
-        irc.stop()
+        map(lambda thread: thread.stop(), threads)
 
         for thread in threading.enumerate():
             if thread.daemon:
                 pywikibot.output('Abandoning daemon thread %s' % thread.name)
+
+        map(lambda thread: thread.join(), threads)
 
 
 if __name__ == '__main__':
