@@ -156,10 +156,11 @@ class ThreadPool(object):
 
     def process(self, f):
         if self.queue.qsize() > self.size:
-            pywikibot.warning('%s "%s" size exceeded %d' % (
+            pywikibot.warning('%s "%s" size exceeded %d. Current: %d' % (
                 self.__class__.__name__,
                 self.name,
-                self.size
+                self.size,
+                self.queue.qsize()
             ))
         self.queue.put(f)
 
