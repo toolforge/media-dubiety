@@ -59,7 +59,6 @@ class IRCClient(
         if not self.has_primary_nick():
             return
 
-        print(msg)
         for i in range(0, len(msg), 500):
             self.connection.privmsg_many(channels, msg[i:i+500])
 
