@@ -1,4 +1,4 @@
-from __future__ import unicode_literals
+from __future__ import unicode_literals, print_function
 
 import Queue
 import threading
@@ -10,6 +10,7 @@ import ib3.connection
 import ib3.mixins
 import ib3.nick
 
+import pywikibot
 from pywikibot.comms.eventstreams import EventStreams
 
 
@@ -154,6 +155,12 @@ class ThreadPool(object):
             self.running = False
 
     def process(self, f):
+        if self.queue.qsize > self.size:
+            pywikibot.warning('%s "%s" size exceeded %d' % (
+                self.__class__.__name__,
+                self.name,
+                self.size
+            ))
         self.queue.put(f)
 
     def isAlive(self):
