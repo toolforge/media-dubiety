@@ -103,7 +103,8 @@ class ThreadPoolThread(threading.Thread):
             try:
                 f = self.queue.get(True, 1)
             except Queue.Empty:
-                pass
+                if self.stop_event.isSet():
+                    thread.exit()
             else:
                 try:
                     f()
@@ -111,9 +112,6 @@ class ThreadPoolThread(threading.Thread):
                     traceback.print_exc()
                 finally:
                     self.queue.task_done()
-
-            if self.stop_event.isSet():
-                thread.exit()
 
     def stop(self):
         self.stop_event.set()
