@@ -175,5 +175,7 @@ class ThreadPool(object):
             ))
         self.queue.put(f)
 
-    def isAlive(self):
+    def is_alive(self):
         return bool(self.size) and self.running
+
+    isAlive = is_alive
