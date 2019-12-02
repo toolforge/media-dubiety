@@ -1,6 +1,5 @@
 from __future__ import unicode_literals, print_function
 
-import Queue
 import thread
 import threading
 import traceback
@@ -14,6 +13,11 @@ import ib3.nick
 import pywikibot
 from pywikibot.comms.eventstreams import EventStreams
 
+try:
+    import queue
+except ImportError:
+    # PY2
+    import Queue as queue
 
 try:
     basestring
@@ -102,7 +106,7 @@ class ThreadPoolThread(threading.Thread):
         while True:
             try:
                 f = self.queue.get(True, 1)
-            except Queue.Empty:
+            except queue.Empty:
                 if self.stop_event.isSet():
                     thread.exit()
             else:
@@ -124,7 +128,7 @@ class ThreadPool(object):
         self.running = False
         self.threads = []
         self.size = 0
-        self.queue = Queue.Queue()
+        self.queue = queue.Queue()
 
         self.incr(size)
 
