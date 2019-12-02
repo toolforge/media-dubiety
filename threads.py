@@ -1,6 +1,5 @@
 from __future__ import unicode_literals, print_function
 
-import thread
 import threading
 import traceback
 
@@ -62,7 +61,7 @@ class IRCClient(
     def check_interrupt(self):
         if self.stop_event.isSet():
             self.connection.disconnect('406 Not Acceptable')
-            thread.exit()
+            raise SystemExit
 
     def stop(self):
         self.stop_event.set()
@@ -88,7 +87,7 @@ class SSEClient(threading.Thread):
         stream = EventStreams(stream='recentchange')
         for event in stream:
             if self.stop_event.isSet():
-                thread.exit()
+                raise SystemExit
 
             self.handler(event)
 
@@ -108,7 +107,7 @@ class ThreadPoolThread(threading.Thread):
                 f = self.queue.get(True, 1)
             except queue.Empty:
                 if self.stop_event.isSet():
-                    thread.exit()
+                    raise SystemExit
             else:
                 try:
                     f()
